@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -117,6 +119,32 @@ func (f *handoverFixture) reloadProduct(t *testing.T, id uint) *model.Product {
 		t.Fatalf("reload product %d: %v", id, err)
 	}
 	return &p
+}
+
+// blockSoldStatusUpdate injects a fault exactly at the product status-update
+// statement: a DB trigger aborts any transition of products.status to "sold".
+// The product row and the order->product association are left intact, so the
+// failure genuinely happens during the status update rather than because the
+// product is missing/disassociated. Use unblockSoldStatusUpdate to clear it.
+func (f *handoverFixture) blockSoldStatusUpdate(t *testing.T) {
+	t.Helper()
+	stmt := `
+CREATE TRIGGER trg_fail_product_sold
+BEFORE UPDATE ON products
+FOR EACH ROW WHEN NEW.status = 'sold' AND OLD.status <> 'sold'
+BEGIN
+	SELECT RAISE(ABORT, 'simulated product status update failure');
+END;`
+	if err := f.db.Exec(stmt).Error; err != nil {
+		t.Fatalf("create fail-sold trigger: %v", err)
+	}
+}
+
+func (f *handoverFixture) unblockSoldStatusUpdate(t *testing.T) {
+	t.Helper()
+	if err := f.db.Exec("DROP TRIGGER IF EXISTS trg_fail_product_sold").Error; err != nil {
+		t.Fatalf("drop fail-sold trigger: %v", err)
+	}
 }
 
 // requireAppErr fails unless err is an AppError with the expected business code.
@@ -343,19 +371,19 @@ func TestHandoverCodeVerifySucceedsOnlyOnce(t *testing.T) {
 }
 
 // TestHandoverVerificationRollsBackWhenProductUpdateFails proves the order is
-// never marked completed when the product "sold" update fails: the whole
-// verification transaction (code consumption + completion) rolls back.
+// never marked completed when the product "sold" status update itself fails:
+// the whole verification transaction (code consumption + completion) rolls
+// back. The product row and its association with the order are kept intact;
+// the fault is injected on the UPDATE-products statement via a DB trigger.
 func TestHandoverVerificationRollsBackWhenProductUpdateFails(t *testing.T) {
 	fx := newHandoverFixture(t)
 	ord := fx.placeAndConfirmOrder(t)
 	code := ord.HandoverCode
 
-	// Remove the product row so that marking it sold inside the transaction
-	// fails (UPDATE matches no row -> ErrNotFound), simulating a product
-	// status-update failure.
-	if err := fx.db.Delete(&model.Product{}, ord.ProductID).Error; err != nil {
-		t.Fatalf("delete product: %v", err)
-	}
+	// Make the product status transition to "sold" fail at the database
+	// statement itself (product row and order association remain in place).
+	fx.blockSoldStatusUpdate(t)
+	defer fx.unblockSoldStatusUpdate(t)
 
 	o, err := fx.svc.VerifyHandoverCode(fx.ctx, fx.seller.ID, ord.ID, code)
 	expectCode(t, o, err, constants.CodeInternalError)
@@ -371,22 +399,39 @@ func TestHandoverVerificationRollsBackWhenProductUpdateFails(t *testing.T) {
 	if stored.CompletedAt != nil || stored.SellerConfirmedAt != nil || stored.HandoverUsedAt != nil {
 		t.Fatalf("timestamps must be rolled back, got %+v", stored)
 	}
-
-	// Because the code was not consumed, retrying after a product exists again
-	// completes normally — proving the one-time code survived the rollback.
-	p := fx.createOnSaleProduct(t)
-	if err := fx.db.Model(&model.TradeOrder{}).Where("id = ?", ord.ID).
-		Update("product_id", p.ID).Error; err != nil {
-		t.Fatalf("repatch product id: %v", err)
+	// Association intact and product still unsold.
+	if stored.ProductID != ord.ProductID {
+		t.Fatalf("order-product association must be preserved, got product_id=%d", stored.ProductID)
 	}
+	product := fx.reloadProduct(t, ord.ProductID)
+	if product.Status != constants.ProductStatusOnSale {
+		t.Fatalf("product status = %s, want on_sale (must not be sold)", product.Status)
+	}
+
+	// Wrong-code attempts still fail with mismatch while the fault is armed
+	// (and must not consume the code either).
+	wrong := "000000"
+	if wrong == code {
+		wrong = "111111"
+	}
+	wo, werr := fx.svc.VerifyHandoverCode(fx.ctx, fx.seller.ID, ord.ID, wrong)
+	expectCode(t, wo, werr, constants.CodeHandoverMismatch)
+	if s := fx.reloadOrder(t, ord.ID); s.HandoverStatus != constants.HandoverCodeUnused {
+		t.Fatalf("code consumed after mismatch: %s", s.HandoverStatus)
+	}
+
+	// Lift the fault: the SAME order with the SAME (unconsumed) code now
+	// completes normally, proving the one-time code survived the rollback and
+	// the failure really was at the status-update step.
+	fx.unblockSoldStatusUpdate(t)
 	done, err := fx.svc.VerifyHandoverCode(fx.ctx, fx.seller.ID, ord.ID, code)
 	if err != nil {
-		t.Fatalf("retry after rollback: %v", err)
+		t.Fatalf("retry after fault lifted: %v", err)
 	}
 	if done.Status != constants.TradeStatusCompleted || done.HandoverStatus != constants.HandoverCodeUsed {
 		t.Fatalf("retry should complete: %s/%s", done.Status, done.HandoverStatus)
 	}
-	if fp := fx.reloadProduct(t, p.ID); fp.Status != constants.ProductStatusSold {
+	if fp := fx.reloadProduct(t, ord.ProductID); fp.Status != constants.ProductStatusSold {
 		t.Fatalf("product status after retry = %s, want sold", fp.Status)
 	}
 
@@ -401,4 +446,63 @@ func TestHandoverVerificationRollsBackWhenProductUpdateFails(t *testing.T) {
 	}
 	vo, verr := fx.svc.VerifyHandoverCode(fx.ctx, fx.seller.ID, cancelled.ID, "123456")
 	expectCode(t, vo, verr, constants.CodeConflict)
+}
+
+// TestHandoverConcurrentVerificationSucceedsOnce verifies the one-time
+// guarantee under a race: many concurrent verify calls with the correct code
+// must result in exactly one completion and a single product "sold" transition.
+func TestHandoverConcurrentVerificationSucceedsOnce(t *testing.T) {
+	fx := newHandoverFixture(t)
+	// Serialize writes on a single pooled connection so the conditional UPDATE
+	// is evaluated against committed rows; the DB-level guard (not Go locks)
+	// still decides the single winner. This mirrors row locking in MySQL.
+	sqlDB, err := fx.db.DB()
+	if err != nil {
+		t.Fatalf("get sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+
+	ord := fx.placeAndConfirmOrder(t)
+	code := ord.HandoverCode
+
+	const n = 16
+	var wg sync.WaitGroup
+	var success int64
+	codeCounts := map[int]int{}
+	var mu sync.Mutex
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			_, verr := fx.svc.VerifyHandoverCode(fx.ctx, fx.seller.ID, ord.ID, code)
+			if verr == nil {
+				atomic.AddInt64(&success, 1)
+				return
+			}
+			var ae *util.AppError
+			if errors.As(verr, &ae) {
+				mu.Lock()
+				codeCounts[ae.Code]++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if atomic.LoadInt64(&success) != 1 {
+		t.Fatalf("exactly one verification must succeed, got %d", success)
+	}
+	usedCount := codeCounts[constants.CodeHandoverUsed]
+	if int64(usedCount) != n-1 {
+		t.Fatalf("the other %d attempts must be CodeHandoverUsed, got %v", n-1, codeCounts)
+	}
+
+	stored := fx.reloadOrder(t, ord.ID)
+	if stored.Status != constants.TradeStatusCompleted || stored.HandoverStatus != constants.HandoverCodeUsed {
+		t.Fatalf("post-race state = %s/%s", stored.Status, stored.HandoverStatus)
+	}
+	// Product transitioned to sold exactly once; no double update.
+	if p := fx.reloadProduct(t, ord.ProductID); p.Status != constants.ProductStatusSold {
+		t.Fatalf("product status = %s, want sold", p.Status)
+	}
 }
