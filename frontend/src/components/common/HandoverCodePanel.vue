@@ -64,7 +64,7 @@
           :type="feedback.type"
           :closable="true"
           show-icon
-          @close="feedback = { type: '', message: '' }"
+          @close="clearFeedback"
         />
       </template>
       <p v-else class="handover-empty">
@@ -141,8 +141,16 @@ const inputCode = ref('')
 const verifying = ref(false)
 const feedback = reactive<{ type: '' | 'success' | 'error' | 'warning'; message: string }>({ type: '', message: '' })
 
+// reactive 对象不能整体重新赋值（const 绑定），只能逐字段清空，否则关闭按钮静默失效。
+function clearFeedback() {
+  feedback.type = ''
+  feedback.message = ''
+}
+
 function onCodeInput(v: string) {
   inputCode.value = v.replace(/\D/g, '').slice(0, 6)
+  // 卖家修改码时收起旧提示，避免连续试码时遮挡输入区。
+  clearFeedback()
 }
 
 watch(
