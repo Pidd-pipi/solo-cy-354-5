@@ -62,11 +62,16 @@ CREATE TABLE IF NOT EXISTS trade_orders (
   buyer_confirmed_at DATETIME(3) NULL,
   seller_confirmed_at DATETIME(3) NULL,
   completed_at DATETIME(3) NULL,
+  handover_code VARCHAR(8) DEFAULT '',
+  handover_expires_at DATETIME(3) NULL,
+  handover_used_at DATETIME(3) NULL,
+  handover_status VARCHAR(16) NOT NULL DEFAULT '',
   created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3),
   INDEX idx_trade_orders_product (product_id),
   INDEX idx_trade_orders_buyer (buyer_id),
   INDEX idx_trade_orders_seller (seller_id),
-  INDEX idx_trade_orders_status (status)
+  INDEX idx_trade_orders_status (status),
+  INDEX idx_trade_orders_handover (handover_status, handover_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS reviews (

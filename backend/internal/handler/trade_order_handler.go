@@ -43,10 +43,11 @@ func (h *TradeOrderHandler) Create(c *gin.Context) {
 		c.Error(err)
 		return
 	}
-	util.OK(c, order)
+	util.OK(c, dto.NewTradeOrderResponse(order, user.ID))
 }
 
-// ListMy handles GET /trade-orders/me.
+// ListMy handles GET /trade-orders/me. The one-time handover code is only
+// included on orders viewed by their buyer.
 func (h *TradeOrderHandler) ListMy(c *gin.Context) {
 	userID, err := middleware.CurrentUserID(c)
 	if err != nil {
@@ -63,17 +64,49 @@ func (h *TradeOrderHandler) ListMy(c *gin.Context) {
 		c.Error(err)
 		return
 	}
-	util.OK(c, result)
+	items, _ := result.Items.([]model.TradeOrder)
+	util.OK(c, &dto.PageResult{
+		Items:    dto.NewTradeOrderResponseList(items, userID),
+		Total:    result.Total,
+		Page:     result.Page,
+		PageSize: result.PageSize,
+	})
 }
 
-// BuyerConfirm handles POST /trade-orders/:id/buyer-confirm.
+// BuyerConfirm handles POST /trade-orders/:id/buyer-confirm and returns the
+// freshly generated one-time handover code (buyer only).
 func (h *TradeOrderHandler) BuyerConfirm(c *gin.Context) {
 	h.act(c, h.svc.BuyerConfirm)
 }
 
-// SellerConfirm handles POST /trade-orders/:id/seller-confirm.
-func (h *TradeOrderHandler) SellerConfirm(c *gin.Context) {
-	h.act(c, h.svc.SellerConfirm)
+// RegenerateHandover handles POST /trade-orders/:id/handover-code/regenerate.
+func (h *TradeOrderHandler) RegenerateHandover(c *gin.Context) {
+	h.act(c, h.svc.RegenerateHandoverCode)
+}
+
+// VerifyHandover handles POST /trade-orders/:id/handover-code/verify (seller only).
+func (h *TradeOrderHandler) VerifyHandover(c *gin.Context) {
+	userID, err := middleware.CurrentUserID(c)
+	if err != nil {
+		util.Fail(c, http.StatusUnauthorized, constants.CodeUnauthorized, constants.MsgUnauthorized)
+		return
+	}
+	orderID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		util.Fail(c, http.StatusBadRequest, constants.CodeBadRequest, "订单ID不合法")
+		return
+	}
+	var req dto.VerifyHandoverCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Fail(c, http.StatusBadRequest, constants.CodeValidation, constants.MsgHandoverCodeFormat)
+		return
+	}
+	order, err := h.svc.VerifyHandoverCode(c.Request.Context(), userID, uint(orderID), req.Code)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	util.OK(c, dto.NewTradeOrderResponse(order, userID))
 }
 
 // Cancel handles POST /trade-orders/:id/cancel.
@@ -97,7 +130,7 @@ func (h *TradeOrderHandler) act(c *gin.Context, fn func(ctx context.Context, use
 		c.Error(err)
 		return
 	}
-	util.OK(c, order)
+	util.OK(c, dto.NewTradeOrderResponse(order, userID))
 }
 
 func (h *TradeOrderHandler) requireUser(c *gin.Context) *model.User {

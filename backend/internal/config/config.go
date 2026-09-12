@@ -17,6 +17,7 @@ type Config struct {
 	LoginRateLimit  int
 	CORSOrigins     []string
 	SeedingEnabled  bool
+	HandoverTTLMinutes int
 }
 
 // Load reads configuration from environment variables and applies defaults.
@@ -30,6 +31,7 @@ func Load() *Config {
 		LoginRateLimit:  getEnvInt("LOGIN_RATE_LIMIT_PER_MIN", 10),
 		CORSOrigins:     splitCSV(getEnv("CORS_ORIGINS", "http://localhost:28514,http://localhost:5173")),
 		SeedingEnabled:  getEnvBool("SEEDING_ENABLED", true),
+		HandoverTTLMinutes: getEnvInt("HANDOVER_CODE_TTL_MINUTES", 30),
 	}
 }
 

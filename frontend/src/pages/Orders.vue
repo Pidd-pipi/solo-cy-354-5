@@ -11,12 +11,26 @@
           </p>
         </div>
         <div class="order-actions">
-          <el-button v-if="o.status === 'pending' && o.buyer_id === authStore.user?.id" size="small" type="primary" @click="buyerConfirm(o.id)">确认收货</el-button>
-          <el-button v-if="o.status === 'confirmed' && o.seller_id === authStore.user?.id" size="small" type="success" @click="sellerConfirm(o.id)">确认收款</el-button>
-          <el-button v-if="o.status === 'pending'" size="small" type="danger" @click="cancel(o.id)">取消</el-button>
+          <el-button
+            v-if="o.status === 'pending' && o.buyer_id === authStore.user?.id"
+            size="small"
+            type="primary"
+            @click="buyerConfirmFn(o.id)"
+          >
+            确认订单并生成面交码
+          </el-button>
+          <el-button v-if="o.status === 'pending'" size="small" type="danger" @click="cancelFn(o.id)">取消</el-button>
           <el-button v-if="o.status === 'completed'" size="small" @click="reviewDialog(o)">评价</el-button>
         </div>
       </div>
+      <!-- 面交核销：已确认订单买家看码、卖家输码；完成后保留核销结果反馈 -->
+      <HandoverCodePanel
+        v-if="(o.status === 'confirmed' || o.status === 'completed') && (o.buyer_id === authStore.user?.id || o.seller_id === authStore.user?.id)"
+        :order="o"
+        :current-user-id="authStore.user?.id"
+        @verified="onOrderChanged"
+        @regenerated="onOrderChanged"
+      />
     </el-card>
     <el-empty v-if="orders.length === 0" description="暂无交易" />
     <el-dialog v-model="reviewVisible" title="信誉评价" width="420px">
@@ -40,36 +54,38 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus'
 import TradeStatusBadge from '../components/common/TradeStatusBadge.vue'
+import HandoverCodePanel from '../components/common/HandoverCodePanel.vue'
 import { useTradeStore } from '../stores/tradeStore'
 import { useAuthStore } from '../stores/authStore'
-import { buyerConfirm, sellerConfirm, cancelTradeOrder } from '../api/tradeOrder'
+import { buyerConfirm, cancelTradeOrder } from '../api/tradeOrder'
 import { createReview } from '../api/review'
 import { REVIEW_RATINGS } from '../constants/trade'
 import { formatDateTime } from '../utils/dateFormat'
 import type { TradeOrder } from '../types'
 
-const { orders, fetch } = useTradeStore()
+const tradeStore = useTradeStore()
+const { orders } = storeToRefs(tradeStore)
+const { fetch } = tradeStore
 const authStore = useAuthStore()
 const reviewVisible = ref(false)
 const reviewForm = reactive({ trade_id: 0, rating: 'good', content: '' })
 
 async function buyerConfirmFn(id: number) {
   await buyerConfirm(id)
-  ElMessage.success('已确认收货')
-  await fetch()
-}
-
-async function sellerConfirmFn(id: number) {
-  await sellerConfirm(id)
-  ElMessage.success('交易完成')
+  ElMessage.success('订单已确认，一次性面交码已生成')
   await fetch()
 }
 
 async function cancelFn(id: number) {
   await cancelTradeOrder(id)
   ElMessage.success('已取消')
+  await fetch()
+}
+
+async function onOrderChanged() {
   await fetch()
 }
 

@@ -12,7 +12,8 @@ func RegisterTradeOrderRoutes(g *gin.RouterGroup, h *handler.TradeOrderHandler, 
 		orders.POST("", apiLimiter, h.Create)
 		orders.GET("/me", apiLimiter, h.ListMy)
 		orders.POST("/:id/buyer-confirm", apiLimiter, h.BuyerConfirm)
-		orders.POST("/:id/seller-confirm", apiLimiter, h.SellerConfirm)
+		orders.POST("/:id/handover-code/regenerate", apiLimiter, h.RegenerateHandover)
+		orders.POST("/:id/handover-code/verify", apiLimiter, h.VerifyHandover)
 		orders.POST("/:id/cancel", apiLimiter, h.Cancel)
 	}
 }

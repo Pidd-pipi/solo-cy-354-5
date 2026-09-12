@@ -32,6 +32,11 @@ func TradeStatusText(s string) string {
 	return constants.TradeStatusText(s)
 }
 
+// HandoverCodeStatusText maps a handover code status to its Chinese label.
+func HandoverCodeStatusText(s string) string {
+	return constants.HandoverCodeStatusText(s)
+}
+
 // RoleText maps a user role to its Chinese label.
 func RoleText(role string) string {
 	return constants.UserRoleText(role)

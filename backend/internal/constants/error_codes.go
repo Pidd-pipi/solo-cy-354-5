@@ -10,5 +10,9 @@ const (
 	CodeConflict      = 40900
 	CodeRateLimited   = 42900
 	CodeValidation    = 42200
+	CodeHandoverMismatch = 40910
+	CodeHandoverExpired  = 40911
+	CodeHandoverUsed     = 40912
+	CodeHandoverNoCode   = 40913
 	CodeInternalError = 50000
 )

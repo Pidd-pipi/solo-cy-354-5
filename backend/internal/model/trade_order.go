@@ -12,5 +12,9 @@ type TradeOrder struct {
 	BuyerConfirmedAt   *time.Time `json:"buyer_confirmed_at"`
 	SellerConfirmedAt  *time.Time `json:"seller_confirmed_at"`
 	CompletedAt        *time.Time `json:"completed_at"`
+	HandoverCode       string     `gorm:"size:8;index" json:"handover_code,omitempty"`
+	HandoverExpiresAt  *time.Time `json:"handover_expires_at"`
+	HandoverUsedAt     *time.Time `json:"handover_used_at"`
+	HandoverStatus     string     `gorm:"size:16;index;not null;default:''" json:"handover_status"`
 	CreatedAt          time.Time  `json:"created_at"`
 }

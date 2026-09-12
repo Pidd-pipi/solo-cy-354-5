@@ -46,6 +46,46 @@ const (
 	ReviewRatingBad    = "bad"
 )
 
+// HandoverCodeStatus defines the lifecycle states of the one-time in-person
+// handover code, shared with the frontend.
+const (
+	HandoverCodeUnused   = "unused"   // 已生成、等待卖家核销
+	HandoverCodeUsed     = "used"     // 已核销（订单完成）
+	HandoverCodeExpired  = "expired"  // 超过有效期
+	HandoverCodeCanceled = "canceled" // 订单取消，码作废
+)
+
+// HandoverCodeStatuses lists all valid handover code statuses.
+var HandoverCodeStatuses = []string{
+	HandoverCodeUnused, HandoverCodeUsed, HandoverCodeExpired, HandoverCodeCanceled,
+}
+
+// IsHandoverCodeStatus reports whether the given status is valid.
+func IsHandoverCodeStatus(s string) bool {
+	for _, v := range HandoverCodeStatuses {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// HandoverCodeStatusText returns the Chinese label of a handover code status.
+func HandoverCodeStatusText(s string) string {
+	switch s {
+	case HandoverCodeUnused:
+		return "待核销"
+	case HandoverCodeUsed:
+		return "已核销"
+	case HandoverCodeExpired:
+		return "已过期"
+	case HandoverCodeCanceled:
+		return "已作废"
+	default:
+		return "无面交码"
+	}
+}
+
 // ReviewRatingText returns the Chinese label of a review rating.
 func ReviewRatingText(r string) string {
 	switch r {

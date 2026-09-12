@@ -20,6 +20,10 @@ const (
 	LogTradeOrderCompleteSuccess   = "trade order complete success: order_id=%d product_id=%d"
 	LogTradeOrderCompleteFailed    = "trade order complete failed: order_id=%d error=%v"
 	LogTradeOrderCancelSuccess     = "trade order cancel success: order_id=%d"
+	LogHandoverCodeGenerateSuccess = "handover code generate success: order_id=%d buyer_id=%d expires_at=%s"
+	LogHandoverCodeVerifySuccess   = "handover code verify success: order_id=%d seller_id=%d"
+	LogHandoverCodeVerifyFailed    = "handover code verify failed: order_id=%d seller_id=%d reason=%s"
+	LogHandoverCodeRevoked         = "handover code revoked on cancel: order_id=%d"
 	LogReviewCreateSuccess         = "review create success: review_id=%d trade_id=%d rating=%s"
 	LogReviewCreateFailed          = "review create failed: trade_id=%d error=%v"
 	LogCreditUpdateSuccess         = "credit update success: user_id=%d score=%d"
@@ -35,4 +39,4 @@ const (
 )
 
 // LogTemplateCount guards the "at least 25 templates" requirement.
-const LogTemplateCount = 31
+const LogTemplateCount = 35

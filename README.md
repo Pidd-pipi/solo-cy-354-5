@@ -1,6 +1,14 @@
 # CampusMarket（校园二手交易平台）
 
-一款面向高校学生的校内 C2C 交易平台，覆盖闲置物品发布、价格协商私信、交易达成确认、信誉评分举报、毕业季专场与书籍交换等场景。
+一款面向高校学生的校内 C2C 交易平台，覆盖闲置物品发布、价格协商私信、交易达成确认、**面交核销（一次性面交码）**、信誉评分举报、毕业季专场与书籍交换等场景。
+
+## 面交核销流程
+
+1. 买家在「我的交易」点击「确认订单并生成面交码」，后端生成 **6 位一次性面交码**，默认有效期 30 分钟（`HANDOVER_CODE_TTL_MINUTES`），**仅买家视图返回**，页面显示状态（待核销/已核销/已过期）、有效期与倒计时。
+2. 买卖双方面交时，买家出示面交码；卖家在订单页输入后调用核销接口。
+3. 校验成功：订单完成、商品自动标记售出，面交码状态变为已核销并掩码。
+4. 错误码（40910）、已过期（40911，提示买家重新生成）、已使用/重复核销（40912）、无可用码/状态不符（40913/40900）均被拒绝并就地 + 全局双重提示；核销为数据库条件更新，天然防并发重复完成。
+5. 取消与评价流程保持不变（取消仅允许待确认订单；评价仅允许已完成订单）。
 
 ## 快速启动（Docker Compose 一键部署）
 
@@ -93,7 +101,7 @@ cy-354/
     └── src/
         ├── api/             # user, product, conversation, tradeOrder, review, bookExchange
         ├── stores/          # authStore, userStore, productStore, tradeStore
-        ├── components/common/# ProductCard, ProductForm, MessageBubble, TradeStatusBadge, ExchangeCard
+        ├── components/common/# ProductCard, ProductForm, MessageBubble, TradeStatusBadge, HandoverCodePanel, ExchangeCard
         ├── hooks/           # useAuth, useProducts, useConversations
         ├── pages/           # Products, Publish, Messages, Orders, BookExchange, Graduation, Profile, Login, Register
         ├── router/          # index.ts + guards.ts
@@ -116,6 +124,7 @@ cy-354/
 | RATE_LIMIT_PER_MIN | 120 | 普通接口限流（次/分钟） |
 | LOGIN_RATE_LIMIT_PER_MIN | 10 | 登录/注册限流（次/分钟） |
 | SEEDING_ENABLED | true | 是否启动时播种数据 |
+| HANDOVER_CODE_TTL_MINUTES | 30 | 一次性面交码有效期（分钟），超时不可核销 |
 | CORS_ORIGINS | http://localhost:28514,http://localhost:5173 | 允许跨域来源（逗号分隔；生产严禁 `*`） |
 | FRONTEND_PORT | 28514 | 前端端口 |
 | BACKEND_PORT | 29514 | 后端端口 |
@@ -139,7 +148,7 @@ cy-354/
   - `POST /api/v1/users/register`、`POST /api/v1/users/login`、`GET/PUT /api/v1/users/me`
   - `GET/POST /api/v1/products`、`GET/DELETE /api/v1/products/:id`、`GET /api/v1/products/graduation`
   - `POST /api/v1/conversations`、`GET /api/v1/conversations/me`、`GET/POST /api/v1/conversations/:id/messages`
-  - `POST /api/v1/trade-orders`、`GET /api/v1/trade-orders/me`、`POST /api/v1/trade-orders/:id/buyer-confirm|seller-confirm|cancel`
+  - `POST /api/v1/trade-orders`、`GET /api/v1/trade-orders/me`、`POST /api/v1/trade-orders/:id/buyer-confirm`（买家确认并生成一次性面交码）、`POST /api/v1/trade-orders/:id/handover-code/verify`（卖家现场核销，订单完成+商品售出）、`POST /api/v1/trade-orders/:id/handover-code/regenerate`（买家重新生成面交码）、`POST /api/v1/trade-orders/:id/cancel`
   - `POST /api/v1/reviews`、`GET /api/v1/reviews/me`
   - `GET/POST /api/v1/book-exchanges`、`POST /api/v1/book-exchanges/:id/close`
   - `GET /api/v1/admin/stats`（管理员）
@@ -166,8 +175,9 @@ cy-354/
 | POST | `/api/v1/conversations/:id/messages` | 发送私信 | 登录 |
 | POST | `/api/v1/trade-orders` | 创建购买订单 | 登录 |
 | GET | `/api/v1/trade-orders/me` | 我的订单列表 | 登录 |
-| POST | `/api/v1/trade-orders/:id/buyer-confirm` | 买家确认 | 登录 |
-| POST | `/api/v1/trade-orders/:id/seller-confirm` | 卖家确认（订单完成+商品售出） | 登录 |
+| POST | `/api/v1/trade-orders/:id/buyer-confirm` | 买家确认订单，生成一次性面交码（仅买家可见） | 登录（买家） |
+| POST | `/api/v1/trade-orders/:id/handover-code/regenerate` | 重新生成面交码（未使用/已过期时，旧码立即失效） | 登录（买家） |
+| POST | `/api/v1/trade-orders/:id/handover-code/verify` | 卖家输入买家现场出示的码核销（成功则订单完成+商品售出；错误码 40910/过期 40911/已使用 40912/无可用码 40913） | 登录（卖家） |
 | POST | `/api/v1/trade-orders/:id/cancel` | 取消订单 | 登录 |
 | POST | `/api/v1/reviews` | 交易后评价（含信誉积分） | 登录 |
 | GET | `/api/v1/reviews/me` | 我收到的评价 | 登录 |

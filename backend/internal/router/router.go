@@ -46,7 +46,7 @@ func New(cfg *config.Config, db *gorm.DB, logger *slog.Logger) *gin.Engine {
 	userSvc := service.NewUserService(userRepo, cfg.JWTSecret, cfg.JWTExpireHours, logger)
 	productSvc := service.NewProductService(productRepo, logger)
 	convSvc := service.NewConversationService(convRepo, logger)
-	orderSvc := service.NewTradeOrderService(orderRepo, productRepo, logger)
+	orderSvc := service.NewTradeOrderService(orderRepo, productRepo, cfg.HandoverTTLMinutes, logger)
 	reviewSvc := service.NewReviewService(reviewRepo, orderRepo, userRepo, logger)
 	exchangeSvc := service.NewBookExchangeService(exchangeRepo, logger)
 

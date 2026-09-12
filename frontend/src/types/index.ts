@@ -54,6 +54,11 @@ export interface TradeOrder {
   buyer_confirmed_at: string | null
   seller_confirmed_at: string | null
   completed_at: string | null
+  // 面交核销：一次性面交码仅买家视图返回，卖家视图恒为空串
+  handover_code: string
+  handover_expires_at: string | null
+  handover_used_at: string | null
+  handover_status: '' | 'unused' | 'used' | 'expired' | 'canceled'
   created_at: string
 }
 
