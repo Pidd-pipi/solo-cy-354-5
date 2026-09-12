@@ -50,6 +50,14 @@ go build ./...
 go test ./...
 ```
 
+面交核销测试（`internal/service/trade_order_handover_test.go`）使用纯 Go（无 CGO）的内存 SQLite + 真实 GORM 仓储与事务，**无需外部 MySQL**，在干净环境直接可跑、可重复复跑：
+
+```bash
+go test ./internal/service/ -run TestHandover -v -count=1
+```
+
+覆盖：买家确认生成 6 位一次性码（仅买家可见、带有效期）、错误码不完成订单、过期码被拒、重复核销仅成功一次、商品状态更新失败时整笔核销事务回滚（订单不落为完成、面交码不被消费）。
+
 前端（Vue 3 + Vite）：
 
 ```bash
